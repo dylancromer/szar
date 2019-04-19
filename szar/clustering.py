@@ -4,6 +4,7 @@ from __future__ import division
 from future import standard_library
 standard_library.install_aliases()
 from builtins import object
+from past.utils import old_div
 import numpy as np
 #from orphics.cosmology import Cosmology
 from szar.counts import ClusterCosmology,Halo_MF
@@ -86,7 +87,7 @@ class Clustering(object):
         sig = np.sqrt(tinker.sigma_sq_integral(R, self.HMF.pk, self.HMF.kh))
 
         blin = tinker.tinker_bias(sig,200.)
-        beff = np.trapz(dndm_SZ*blin, dx=np.diff(self.HMF.M200, axis=0), axis=0)/nbar
+        beff = old_div(np.trapz(dndm_SZ*blin,dx=np.diff(self.HMF.M200,axis=0),axis=0), nbar)
 
         try:
             a_bias = self.cluster_cosm.paramDict['abias']
@@ -95,25 +96,6 @@ class Clustering(object):
             a_bias = 1.
 
         return a_bias * beff
-
-
-    def non_linear_scale(self,z,M200):
-
-        zdiff = np.abs(self.HMF.zarr - z)
-        use_z = np.where(zdiff == np.min(zdiff))[0]
-
-        R = tinker.radius_from_mass(M200,self.cluster_cosm.rhoc0om)
-
-        sig = np.sqrt(tinker.sigma_sq_integral(R, self.HMF.pk[use_z,:], self.HMF.kh))
-
-        print(sig.shape)
-        print(self.HMF.kh.shape)
-        sig1 = sig[0,:]
-        print(sig1)
-        sigdiff = np.abs(sig1 - 1.)
-        use_sig = np.where(sigdiff == np.min(sigdiff))[0]
-        print(use_sig)
-        return 1./(R[use_sig]), sig1[use_sig],self.HMF.zarr[use_z]
 
 
     def Norm_Sfunc(self):
@@ -206,7 +188,6 @@ class Clustering(object):
         zs = self.HMF.zarr
         ks = self.HMF.kh
         zgridedges = self.HMF.zarr_edges
-
         values = np.empty((ks.size, zs.size, mu.size))
 
         fine_zgrid = np.empty((zs.size, nsubsamples))
