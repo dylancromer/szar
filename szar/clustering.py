@@ -22,13 +22,15 @@ class Clustering(object):
         Config.optionxform=str
         Config.read(iniFile)
 
-        self.cc = ClusterCosmology
+        self.cluster_cosm = ClusterCosmology
 
+        #constants from configuration
         bigDataDir = Config.get('general','bigDataDirectory')
         self.clttfile = Config.get('general','clttfile')
         self.constDict = dict_from_section(Config,'constants')
         self.clusterDict = dict_from_section(Config,'cluster_params')
-        #version = Config.get('general','version')
+
+        #Experimental parameters
         beam = list_from_config(Config,expName,'beams')
         noise = list_from_config(Config,expName,'noises')
         freq = list_from_config(Config,expName,'freqs')
@@ -36,42 +38,40 @@ class Clustering(object):
         alpha = list_from_config(Config,expName,'alpha')[0]
         self.fsky = Config.getfloat(expName,'fsky')
 
-        self.mgrid,self.zgrid,siggrid = pickle.load(open(bigDataDir+"szgrid_"+expName+"_"+gridName+ "_v" + version+".pkl",'rb'))  
+        #load SZ grid file
+        self.mgrid,self.zgrid,siggrid = pickle.load(open(bigDataDir+"szgrid_"+expName+"_"+gridName+ "_v" + version+".pkl",'rb'))
 
-        #self.cc = ClusterCosmology(self.fparams,self.constDict,clTTFixFile=self.clttfile)
-        self.SZProp = SZ_Cluster_Model(self.cc,self.clusterDict,rms_noises = noise,fwhms=beam,freqs=freq,lknee=lknee,alpha=alpha)
-        self.HMF = Halo_MF(self.cc,self.mgrid,self.zgrid)
+        #self.cluster_cosm = ClusterCosmology(self.fparams,self.constDict,clTTFixFile=self.clttfile)
+        self.SZProp = SZ_Cluster_Model(self.cluster_cosm,self.clusterDict,rms_noises = noise,fwhms=beam,freqs=freq,lknee=lknee,alpha=alpha)
+        self.HMF = Halo_MF(self.cluster_cosm,self.mgrid,self.zgrid)
         self.HMF.sigN = siggrid.copy()
         #self.dndm_SZ = self.HMF.dn_dmz_SZ(self.SZProp)
 
-    def dVdz_fine(self,zarr):
-        DA_z = self.HMF.cc.results.angular_diameter_distance(zarr)
-        dV_dz = DA_z**2 * (1.+zarr)**2
-        #NOT SURE we need this for loop
+    def dvol_dz_fine(self, zs):
+        ang_diam_dist = self.HMF.cc.results.angular_diameter_distance(zarr)
+        dvol_dz = ang_diam_dist**2 * (1 + zs)**2
+
         for i in range (zarr.size):
             dV_dz[i] /= (self.HMF.cc.results.h_of_z(zarr[i]))
-        dV_dz *= (self.HMF.cc.H0/100.)**3. # was h0
-        return dV_dz
+
+        dvol_dz *= (self.HMF.cc.H0/100)**3
+        return dvol_dz
+
 
     def ntilde(self):
         dndm_SZ = self.HMF.dn_dmz_SZ(self.SZProp)
         ans = np.trapz(dndm_SZ,dx=np.diff(self.HMF.M200,axis=0),axis=0)
         return ans
 
+
     def ntilde_interpol(self,zarr_int):
         ntil = self.ntilde()
         z_arr = self.HMF.zarr
-
-        #n = len(z_arr)
-        #k = 4 # 5th degree spline 
-        #s = 20.*(n - np.sqrt(2*n))* 1.3 # smoothing factor 
-
-        #ntilde_spline = UnivariateSpline(z_arr, np.log(ntil), k=k, s=s)
-        #ans = np.exp(ntilde_spline(zarr_int))
         f_int = interp1d(z_arr, np.log(ntil),kind='cubic')
         ans = np.exp(f_int(zarr_int))
 
         return ans
+
 
     def b_eff_z(self):
         '''
@@ -82,30 +82,30 @@ class Clustering(object):
         z_arr = self.HMF.zarr
         dndm_SZ = self.HMF.dn_dmz_SZ(self.SZProp)
 
-        R = tinker.radius_from_mass(self.HMF.M200,self.cc.rhoc0om)
+        R = tinker.radius_from_mass(self.HMF.M200,self.cluster_cosm.rhoc0om)
         sig = np.sqrt(tinker.sigma_sq_integral(R, self.HMF.pk, self.HMF.kh))
 
         blin = tinker.tinker_bias(sig,200.)
         beff = np.trapz(dndm_SZ*blin, dx=np.diff(self.HMF.M200, axis=0), axis=0)/nbar
 
         try:
-            a_bias = self.cc.paramDict['abias']
+            a_bias = self.cluster_cosm.paramDict['abias']
         except KeyError:
             print("Using implicit a_bias value")
             a_bias = 1.
 
         return a_bias * beff
 
-    def non_linear_scale(self,z,M200): #?Who are you?
+
+    def non_linear_scale(self,z,M200):
 
         zdiff = np.abs(self.HMF.zarr - z)
         use_z = np.where(zdiff == np.min(zdiff))[0]
 
-        R = tinker.radius_from_mass(M200,self.cc.rhoc0om)
+        R = tinker.radius_from_mass(M200,self.cluster_cosm.rhoc0om)
 
         sig = np.sqrt(tinker.sigma_sq_integral(R, self.HMF.pk[use_z,:], self.HMF.kh))
 
-        #print sig[:,0],sig[0,:]
         print(sig.shape)
         print(self.HMF.kh.shape)
         sig1 = sig[0,:]
@@ -113,18 +113,14 @@ class Clustering(object):
         sigdiff = np.abs(sig1 - 1.)
         use_sig = np.where(sigdiff == np.min(sigdiff))[0]
         print(use_sig)
-
-
-
         return 1./(R[use_sig]), sig1[use_sig],self.HMF.zarr[use_z]
 
-# norm is off by 4 pi from ps_bar
+
     def Norm_Sfunc(self):
-        #z_arr = self.HMF.zarr
-        #Check this
         nbar = self.ntilde()
         ans = self.HMF.dVdz*nbar**2*np.diff(self.HMF.zarr_edges)
         return ans
+
 
     def fine_sfunc(self, nsubsamples):
         zs = self.HMF.zarr
@@ -137,7 +133,7 @@ class Clustering(object):
         fine_zgrid = fine_zgrid[1:-1]
 
         ntils = self.ntilde_interpol(fine_zgrid)
-        dvdz = np.array([self.dVdz_fine(zs) for zs in fine_zgrid])
+        dvdz = np.array([self.dvol_dz_fine(zs) for zs in fine_zgrid])
 
         dz = fine_zgrid[0,1] - fine_zgrid[0,0]
 
@@ -145,6 +141,7 @@ class Clustering(object):
 
         integral = np.trapz(dvdz * ntils**2, dx=dz)
         return integral
+
 
     def v0(self, nsubsamples):
         zs = self.HMF.zarr
@@ -155,7 +152,7 @@ class Clustering(object):
             fine_zgrid[i,:] = np.linspace(zgridedges[i], zgridedges[i+1], nsubsamples)
 
         fine_zgrid = fine_zgrid[1:-1]
-        dvdz = np.array([self.dVdz_fine(zs) for zs in fine_zgrid])
+        dvdz = np.array([self.dvol_dz_fine(zs) for zs in fine_zgrid])
         dz = fine_zgrid[0,1] - fine_zgrid[0,0]
 
         assert np.allclose(dz * np.ones(tuple(np.subtract(fine_zgrid.shape, (0,1)))),  np.diff(fine_zgrid,axis=1), rtol=1e-3)
@@ -164,20 +161,22 @@ class Clustering(object):
         integral *= 4 * np.pi * self.fsky
         return integral
 
+
     def ps_tilde(self,mu):
         beff_arr = self.b_eff_z()[..., np.newaxis]
         mu_arr = mu[..., np.newaxis]
-        logGrowth = self.cc.fgrowth(self.HMF.zarr)
+        logGrowth = self.cluster_cosm.fgrowth(self.HMF.zarr)
 
         prefac = (beff_arr.T + logGrowth*mu_arr**2)**2
         prefac = prefac[..., np.newaxis]
 
-        pklin = self.HMF.pk # not actually pklin
+        pklin = self.HMF.pk
         pklin = pklin.T
         pklin = pklin[..., np.newaxis]
 
         ans = np.multiply(prefac,pklin.T).T
         return ans
+
 
     def ps_tilde_interpol(self, zarr_int, mu):
         ps_tils = self.ps_tilde(mu)
@@ -191,17 +190,19 @@ class Clustering(object):
         ps_interp = interp1d(zs, ps_tils, axis=1, kind='cubic')
         return ps_interp(zarr_int)
 
-    def ps_bar(self,mu):
+
+    def ps_bar(self, mu):
         z_arr = self.HMF.zarr
         nbar = self.ntilde()
+
         prefac =  self.HMF.dVdz*nbar**2*np.diff(z_arr)[2]/self.Norm_Sfunc()
         prefac = prefac[..., np.newaxis]
+
         ans = np.multiply(prefac, self.ps_tilde(mu).T).T
-        #for i in range(len(z_arr)): 
-        #    ans[:,:,i] = self.HMF.dVdz[i]*nbar[i]**2*ps_tilde[:,:,i]*np.diff(z_arr[i])/self.Norm_Sfunc(fsky)[i]
         return ans
 
-    def fine_ps_bar(self,mu, nsubsamples=100):
+
+    def fine_ps_bar(self, mu, nsubsamples=100):
         zs = self.HMF.zarr
         ks = self.HMF.kh
         zgridedges = self.HMF.zarr_edges
@@ -214,7 +215,7 @@ class Clustering(object):
 
         fine_zgrid = fine_zgrid[1:-1]
         ntils = self.ntilde_interpol(fine_zgrid)
-        dvdz = np.array([self.dVdz_fine(zs) for zs in fine_zgrid])
+        dvdz = np.array([self.dvol_dz_fine(zs) for zs in fine_zgrid])
         prefac = dvdz * ntils**2
         prefac = prefac[..., np.newaxis]
         ps_tils = self.ps_tilde_interpol(fine_zgrid, mu)
@@ -228,6 +229,7 @@ class Clustering(object):
         s_norm = self.fine_sfunc(nsubsamples)[..., np.newaxis]
         values = integral/s_norm
         return values
+
 
     def V_eff(self,mu,nsubsamples=100):
         V0 = self.v0( nsubsamples)
