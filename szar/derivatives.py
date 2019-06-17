@@ -93,6 +93,7 @@ class Derivs_Clustering(object):
         self.ks = clst.HMF.kh
         self.ps_fid = clst.fine_ps_bar(self.mus)
         self.veff_fid = clst.V_eff(self.mus)
+        self.fiducial_hz_func = clst.HMF.cc.results.h_of_z
 
         self.deltaks = np.gradient(self.ks)
         self.deltamus = np.gradient(self.mus)
@@ -100,7 +101,7 @@ class Derivs_Clustering(object):
     def _pspec(self, params):
         cc = ClusterCosmology(paramDict=params, constDict=self.constdict, clTTFixFile=self.clttfile)
         clst = Clustering(self.inifile, self.expname, self.gridname, self.version, cc)
-        return clst.fine_ps_bar(self.mus)
+        return clst.fine_ps_bar(self.mus, hz_func=self.fiducial_hz_func)
 
     def make_derivs(self):
         ps_ups = np.array(list(map(self._pspec, self.param_ups)))

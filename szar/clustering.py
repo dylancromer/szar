@@ -163,16 +163,21 @@ class Clustering(object):
         integral *= 4 * np.pi * self.fsky
         return integral
 
-    def w_redshift_err(self, mu):
+    def w_redshift_err(self, mu, hz_func):
         ks = self.HMF.kh
         zs = self.HMF.zarr
 
         kr_sqr = ks[:, None]**2 * (1 - mu[None, :]**2)
         sigma_z = self.cc.paramDict['sigma_z']
-        h_z = self.HMF.cc.results.h_of_z(zs)[None, ..., None]
+
+        if hz_func is None:
+            h_z = self.HMF.cc.results.h_of_z(zs)[None, ..., None]
+        else:
+            h_z = hz_func(zs)[None, ..., None]
+
         return np.exp(-0.5*(sigma_z/h_z)**2 * kr_sqr[:, None, :])
 
-    def ps_tilde(self,mu):
+    def ps_tilde(self, mu, hz_func=None):
         beff_arr = self.b_eff_z()[..., np.newaxis]
         mu_arr = mu[..., np.newaxis]
         logGrowth = self.cc.fgrowth(self.HMF.zarr)
@@ -185,10 +190,10 @@ class Clustering(object):
         pklin = pklin[..., np.newaxis]
 
         ans = np.multiply(prefac,pklin.T).T
-        return ans * self.w_redshift_err(mu)**2
+        return ans * self.w_redshift_err(mu, hz_func)**2
 
-    def ps_tilde_interpol(self, zarr_int, mu):
-        ps_tils = self.ps_tilde(mu)
+    def ps_tilde_interpol(self, zarr_int, mu, hz_func=None):
+        ps_tils = self.ps_tilde(mu, hz_func)
         zs = self.HMF.zarr
         ks = self.HMF.kh
 
@@ -209,7 +214,7 @@ class Clustering(object):
         #    ans[:,:,i] = self.HMF.dVdz[i]*nbar[i]**2*ps_tilde[:,:,i]*np.diff(z_arr[i])/self.Norm_Sfunc(fsky)[i]
         return ans
 
-    def fine_ps_bar(self,mu, nsubsamples=100):
+    def fine_ps_bar(self,mu, nsubsamples=100, hz_func=None):
         zs = self.HMF.zarr
         ks = self.HMF.kh
         zgridedges = self.HMF.zarr_edges
@@ -225,7 +230,7 @@ class Clustering(object):
         dvdz = np.array([self.dVdz_fine(zs) for zs in fine_zgrid])
         prefac = dvdz * ntils**2
         prefac = prefac[..., np.newaxis]
-        ps_tils = self.ps_tilde_interpol(fine_zgrid, mu)
+        ps_tils = self.ps_tilde_interpol(fine_zgrid, mu, hz_func)
 
         integrand = prefac * ps_tils
         dz = fine_zgrid[0,1] - fine_zgrid[0,0]
