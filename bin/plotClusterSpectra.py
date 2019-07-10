@@ -21,6 +21,7 @@ if six.PY2:
 else:
   ConfigParser = configparser.ConfigParser
 
+
 def get_cc(ini):
     Config = ConfigParser()
     Config.optionxform=str
@@ -38,6 +39,7 @@ def get_cc(ini):
 
     cc = ClusterCosmology(fparams,constDict,clTTFixFile=clttfile)
     return cc
+
 
 def make_plots_fid(clst, figname, legendlog):
     mus = np.linspace(-1,1,9)
@@ -67,13 +69,15 @@ def make_plots_fid(clst, figname, legendlog):
         plt.savefig(figname)
         plt.gcf().clear()
 
+
 def _get_latex_params(inifile):
     config = ConfigParser()
     config.optionxform=str
     config.read(inifile)
 
-    latex_param_list = config.items('fisher-clustering', 'paramLatexList')[1][1].split(',')
+    latex_param_list = config.items('fisher-clustering-abias', 'paramLatexList')[1][1].split(',')
     return latex_param_list
+
 
 def make_plots_upvdown(ini, clst, ups, downs, factors, params, figname, dir_, legendloc):
     mus = np.linspace(-1,1,9)
@@ -138,6 +142,27 @@ def make_plots_upvdown(ini, clst, ups, downs, factors, params, figname, dir_, le
 
         plt.savefig(dir_ + figname + '_' + f'{param}_updown.svg')
         plt.gcf().clear()
+
+    def _plot_ps_photoz_effects(zindex):
+        fid = ps_bars_fid[:, zindex, :]
+
+        plt.rcParams["font.weight"] = "bold"
+        plt.rcParams["axes.labelweight"] = "bold"
+
+        for mu,ps in zip(mus[4::2], fid.T[4::2]):
+            plt.plot(ks, ps, label=fr'$\mu = {mu}$')
+
+        plt.ylim((3.3e3, 6.7e5))
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.legend(loc='best')
+
+        plt.xlabel(r'$k$')
+        plt.ylabel(r'$\bar P$')
+
+        plt.savefig(dir_ + figname + '_ps_photoz_effects.pdf')
+        plt.gcf().clear()
+
 
     def _plot_ps_with_ratio(param, index, zindex, muindex):
         fid = ps_bars_fid[:, zindex, muindex]
@@ -242,9 +267,10 @@ def make_plots_upvdown(ini, clst, ups, downs, factors, params, figname, dir_, le
         fig.tight_layout()
         fig.savefig(dir_ + figname + '_' + f'{param}_diff_table.svg')
 
-#    for param in params.keys():
-    muind = np.where(mus < 0.8)[0][0]
-    _plot_ps_with_ratio('H0', param_index['H0'], 0, muind)
+    #muind = -1
+    #_plot_ps_with_ratio('H0', param_index['H0'], 0, muind)
+    _plot_ps_photoz_effects(0)
+
 
 def main():
     parser = argparse.ArgumentParser()
